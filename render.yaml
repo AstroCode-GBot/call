@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: astro-media-voice-console
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: MEDIA_SIGNING_SECRET
+        generateValue: true
+      - key: DATA_DIR
+        value: /tmp/media-voice-data
+      - key: MAX_UPLOAD_MB
+        value: "25"
+      - key: MEDIA_LINK_TTL_SECONDS
+        value: "21600"
