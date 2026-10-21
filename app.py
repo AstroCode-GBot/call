@@ -216,20 +216,37 @@ def verify_csrf() -> None:
         abort(400, description="The form expired or its security token was invalid. Refresh and try again.")
 
 
+def effective_public_base_url() -> str:
+    """Resolve the public URL, using Render's host/request host as a safe fallback."""
+    configured = PUBLIC_BASE_URL or os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if configured:
+        return configured
+    # ProxyFix above preserves the external HTTPS scheme on Render.
+    try:
+        return request.url_root.rstrip("/")
+    except RuntimeError:
+        return ""
+
+
+def effective_media_signing_secret() -> str:
+    """Use a dedicated signing secret when configured; otherwise reuse Flask's secret."""
+    return MEDIA_SIGNING_SECRET or str(app.config["SECRET_KEY"])
+
+
 def sign_asset(media_id: str, variant: str, expiry: int) -> str:
-    if not MEDIA_SIGNING_SECRET:
-        raise RuntimeError("MEDIA_SIGNING_SECRET is not configured")
+    secret = effective_media_signing_secret()
     payload = f"{media_id}:{variant}:{expiry}".encode("utf-8")
-    signature = hmac.new(MEDIA_SIGNING_SECRET.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
     return signature
 
 
 def make_asset_url(media_id: str, variant: str) -> str:
-    if not PUBLIC_BASE_URL:
-        raise RuntimeError("PUBLIC_BASE_URL is not configured in Render environment variables")
+    base_url = effective_public_base_url()
+    if not base_url:
+        raise RuntimeError("Public URL could not be determined. Set PUBLIC_BASE_URL in Render Environment.")
     expiry = int(time.time()) + MEDIA_LINK_TTL_SECONDS
     signature = sign_asset(media_id, variant, expiry)
-    return f"{PUBLIC_BASE_URL}/asset/{media_id}/{variant}?exp={expiry}&sig={signature}"
+    return f"{base_url}/asset/{media_id}/{variant}?exp={expiry}&sig={signature}"
 
 
 def valid_asset_signature(media_id: str, variant: str, expiry_text: str, signature: str) -> bool:
@@ -275,7 +292,8 @@ def twilio_signature_valid() -> bool:
     signature = request.headers.get("X-Twilio-Signature", "")
     if not signature:
         return False
-    url = TWILIO_WEBHOOK_URL or (f"{PUBLIC_BASE_URL}/voice" if PUBLIC_BASE_URL else "")
+    base_url = effective_public_base_url()
+    url = TWILIO_WEBHOOK_URL or (f"{base_url}/voice" if base_url else "")
     if not url:
         return False
     # Twilio's documented signature algorithm: URL plus sorted parameter names
@@ -473,14 +491,26 @@ def delete_media(media_id: str):
 @app.get("/preview/<media_id>")
 def preview(media_id: str):
     require_login()
-    item = get_media(media_id)
-    if item is None:
-        abort(404)
+    try:
+        item = get_media(media_id)
+        if item is None:
+            abort(404)
+        source_url = make_asset_url(media_id, "original")
+        audio_url = make_asset_url(media_id, "audio")
+    except RuntimeError as exc:
+        app.logger.exception("Preview could not be prepared because storage/configuration is unavailable")
+        return render_template(
+            "error.html",
+            code=503,
+            message=("Preview could not be prepared. Check Render Environment variables and Logs. "
+                     "If you configured S3 storage, verify its bucket and credentials. "
+                     f"Details: {exc}"),
+        ), 503
     return render_template(
         "preview.html",
         item=item,
-        source_url=make_asset_url(media_id, "original"),
-        audio_url=make_asset_url(media_id, "audio"),
+        source_url=source_url,
+        audio_url=audio_url,
     )
 
 
@@ -510,8 +540,8 @@ def voice():
     # provider account. It does not place outbound calls or target arbitrary numbers.
     if not TWILIO_AUTH_TOKEN:
         return "Set TWILIO_AUTH_TOKEN in the Render environment first.", 503
-    if not MEDIA_SIGNING_SECRET or not PUBLIC_BASE_URL:
-        return "Set MEDIA_SIGNING_SECRET and PUBLIC_BASE_URL in the Render environment first.", 503
+    if not effective_public_base_url():
+        return "Set PUBLIC_BASE_URL in the Render environment first.", 503
     if not twilio_signature_valid():
         app.logger.warning("Rejected a voice webhook with an invalid signature")
         return "Forbidden", 403
@@ -529,7 +559,15 @@ def voice():
 
 @app.get("/health")
 def health():
-    return jsonify({"status": "ok", "storage": "s3-compatible" if S3_ENABLED else "local-ephemeral-or-mounted-disk"})
+    return jsonify({
+        "status": "ok",
+        "storage": "s3-compatible" if S3_ENABLED else "local-ephemeral-or-mounted-disk",
+        "ffmpeg_available": shutil.which("ffmpeg") is not None,
+        "ffprobe_available": shutil.which("ffprobe") is not None,
+        "public_url_configured": bool(PUBLIC_BASE_URL or os.getenv("RENDER_EXTERNAL_URL")),
+        "dedicated_media_signing_secret_configured": bool(MEDIA_SIGNING_SECRET),
+        "twilio_auth_token_configured": bool(TWILIO_AUTH_TOKEN),
+    })
 
 
 @app.errorhandler(401)
@@ -566,6 +604,26 @@ def bad_request(error):
     if session.get("logged_in"):
         return render_template("error.html", code=400, message=getattr(error, "description", "Bad request")), 400
     return getattr(error, "description", "Bad request"), 400
+
+
+@app.errorhandler(500)
+def internal_server_error(error):
+    # Keep secrets and tracebacks out of the page; the full details remain in Render Logs.
+    original = getattr(error, "original_exception", None)
+    if original is not None:
+        app.logger.error(
+            "Unhandled application error (%s)", type(original).__name__,
+            exc_info=(type(original), original, original.__traceback__),
+        )
+    else:
+        app.logger.error("Unhandled application error: %s", error)
+    return render_template(
+        "error.html",
+        code=500,
+        message="The server hit an unexpected error. Check Render → Logs for the traceback. "
+                "For preview issues, verify PUBLIC_BASE_URL, SECRET_KEY, MEDIA_SIGNING_SECRET, "
+                "and your media storage configuration.",
+    ), 500
 
 
 if __name__ == "__main__":
