@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Astro Media • Dashboard</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="app-bg">
+<main class="shell shell-wide">
+  <header class="brand-row"><div class="brand-mark">AM</div><div><div class="brand-name">ASTRO MEDIA</div><div class="brand-sub">VOICE CONSOLE</div></div><div class="header-spacer"></div><span class="pill live-pill"><span class="pulse"></span> READY</span><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-quiet btn-small" type="submit">Sign out</button></form></header>
+  <section class="hero"><div><div class="eyebrow">MEDIA LIBRARY / INBOUND PLAYBACK</div><h1>Your audio, <span class="gradient-text">ready to play.</span></h1><p class="muted hero-copy">Upload a track or a video with an audio track. Video audio is extracted and converted to MP3 for compatible voice playback.</p></div><div class="hero-badge"><div class="hero-badge-icon">♫</div><div><strong>Inbound only</strong><span>No outgoing call controls</span></div></div></section>
+  {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-stack">{% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
+  <div class="grid-main">
+    <section class="panel upload-panel">
+      <div class="section-head"><div><div class="eyebrow">01 / UPLOAD MEDIA</div><h2>Add a new track</h2></div><span class="pill">MAX {{ max_upload_mb }} MB</span></div>
+      <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data" id="upload-form" class="form-stack">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="dropzone" for="file-input" id="dropzone">
+          <div class="upload-icon">↑</div><strong id="file-title">Choose an audio or video file</strong><span class="muted" id="file-subtitle">MP3 · WAV · M4A · AAC · OGG · FLAC · MP4 · WebM · MOV</span><span class="btn btn-secondary btn-small">Browse files</span>
+          <input id="file-input" name="file" type="file" accept="audio/*,video/mp4,video/webm,video/quicktime,.flac,.aac" required>
+        </label>
+        <div id="selected-meta" class="selected-meta hidden"></div>
+        <div id="local-preview" class="local-preview hidden"></div>
+        <div class="upload-rules"><div><span class="rule-check">✓</span> Audio up to 2 minutes</div><div><span class="rule-check">✓</span> Video up to 1 minute</div><div><span class="rule-check">✓</span> Converted to MP3 for playback</div></div>
+        <button id="upload-button" class="btn btn-primary" type="submit">Upload &amp; select audio <span aria-hidden="true">→</span></button>
+        <p class="tiny muted">Use media you own or have permission to play. The server checks actual file content and duration.</p>
+      </form>
+    </section>
+    <aside class="panel status-panel">
+      <div class="eyebrow">02 / CALL SERVICE</div><h2>Voice webhook</h2>
+      <div class="status-line"><span class="status-icon">↗</span><div><strong>Inbound call mode</strong><span class="muted">Your provider calls this app for instructions</span></div></div>
+      <div class="endpoint"><span>Webhook endpoint</span><code>/voice</code></div>
+      <div class="endpoint"><span>Method</span><code>POST + signature check</code></div>
+      <div class="status-note"><span class="status-note-icon">i</span><p>Set your provider number’s inbound voice webhook to <code>{{ (request.url_root.rstrip('/')) }}/voice</code> using POST. Configure <code>TWILIO_AUTH_TOKEN</code> in Render to verify requests.</p></div>
+      {% if s3_enabled %}<div class="storage-status cloud"><span class="status-dot"></span> Persistent object storage configured</div>{% else %}<div class="storage-status"><span class="status-dot warn"></span> Local storage · may reset on Render redeploy</div>{% endif %}
+    </aside>
+  </div>
+  <section class="library-section">
+    <div class="section-head"><div><div class="eyebrow">03 / MEDIA LIBRARY</div><h2>Your tracks <span class="count-badge">{{ media_items|length }}</span></h2></div>{% if active_id %}<span class="selected-label"><span class="status-dot"></span> Active for inbound calls</span>{% endif %}</div>
+    {% if media_items %}<div class="media-grid">{% for item in media_items %}<article class="media-card {% if item.id == active_id %}is-active{% endif %}">
+      <div class="media-card-top"><div class="media-type-icon">{% if item.kind == 'video' %}▶{% else %}♫{% endif %}</div><span class="pill {% if item.id == active_id %}pill-active{% endif %}">{% if item.id == active_id %}ACTIVE{% else %}{{ item.kind|upper }}{% endif %}</span></div>
+      <h3 title="{{ item.filename }}">{{ item.filename }}</h3><div class="media-meta"><span>{{ '%.0f'|format(item.duration) }} sec</span><span>{{ '%.2f'|format(item.size_bytes / 1048576) }} MB</span><span>{{ item.extension[1:]|upper }}</span></div>
+      <div class="card-actions"><a class="btn btn-secondary btn-small" href="{{ url_for('preview', media_id=item.id) }}">Preview</a>{% if item.id != active_id %}<form method="post" action="{{ url_for('select_media', media_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary btn-small" type="submit">Select</button></form>{% else %}<span class="active-check">✓ Selected</span>{% endif %}</div>
+      <form method="post" action="{{ url_for('delete_media', media_id=item.id) }}" class="delete-form" onsubmit="return confirm('Delete this media file?')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="text-button" type="submit">Delete media</button></form>
+    </article>{% endfor %}</div>{% else %}<div class="empty-state"><div class="empty-icon">♫</div><h3>Your library is empty</h3><p class="muted">Upload your first audio or video file to get started.</p></div>{% endif %}
+  </section>
+  <footer class="footer">ASTRO MEDIA <span>·</span> PRIVATE MEDIA TOOL <span>·</span> <a href="{{ url_for('health') }}">HEALTH</a></footer>
+</main>
+<script>
+const fileInput = document.getElementById('file-input');
+const titleNode = document.getElementById('file-title');
+const subtitleNode = document.getElementById('file-subtitle');
+const metaNode = document.getElementById('selected-meta');
+const previewNode = document.getElementById('local-preview');
+const uploadButton = document.getElementById('upload-button');
+let objectUrl = null;
+fileInput.addEventListener('change', () => {
+  previewNode.innerHTML = ''; previewNode.classList.add('hidden'); metaNode.classList.add('hidden');
+  if (objectUrl) URL.revokeObjectURL(objectUrl);
+  const file = fileInput.files && fileInput.files[0];
+  if (!file) { titleNode.textContent = 'Choose an audio or video file'; return; }
+  titleNode.textContent = file.name;
+  subtitleNode.textContent = 'Selected · ' + (file.size / 1048576).toFixed(2) + ' MB';
+  metaNode.textContent = 'The server will validate duration and convert the audio track after upload.';
+  metaNode.classList.remove('hidden');
+  objectUrl = URL.createObjectURL(file);
+  let player;
+  if (file.type.startsWith('video/')) { player = document.createElement('video'); player.controls = true; player.playsInline = true; player.muted = false; }
+  else if (file.type.startsWith('audio/')) { player = document.createElement('audio'); player.controls = true; }
+  if (player) { player.src = objectUrl; previewNode.appendChild(player); previewNode.classList.remove('hidden'); }
+});
+document.getElementById('upload-form').addEventListener('submit', () => {
+  uploadButton.disabled = true; uploadButton.textContent = 'Uploading and processing…';
+});
+</script>
+</body></html>

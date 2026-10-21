@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Preview • Astro Media</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head>
+<body class="app-bg"><main class="shell shell-narrow">
+<header class="brand-row"><div class="brand-mark">AM</div><div><div class="brand-name">ASTRO MEDIA</div><div class="brand-sub">MEDIA PREVIEW</div></div><div class="header-spacer"></div><a class="btn btn-quiet btn-small" href="{{ url_for('index') }}">← Dashboard</a></header>
+<section class="panel preview-panel"><div class="eyebrow">MEDIA PREVIEW</div><h1>{{ item.filename }}</h1><p class="muted">Original file preview, plus the normalized MP3 track used by the inbound voice webhook.</p>
+<div class="preview-block"><div class="preview-label">ORIGINAL FILE</div>{% if item.kind == 'video' %}<video controls playsinline preload="metadata" src="{{ source_url }}"></video>{% else %}<audio controls preload="metadata" src="{{ source_url }}"></audio>{% endif %}</div>
+<div class="preview-block"><div class="preview-label">CONVERTED PLAYBACK AUDIO</div><audio controls preload="metadata" src="{{ audio_url }}"></audio></div>
+<div class="preview-details"><div><span>Duration</span><strong>{{ '%.0f'|format(item.duration) }} seconds</strong></div><div><span>File size</span><strong>{{ '%.2f'|format(item.size_bytes / 1048576) }} MB</strong></div><div><span>Type</span><strong>{{ item.kind|title }}</strong></div></div>
+<a href="{{ url_for('index') }}" class="btn btn-primary full-width">Back to dashboard</a></section><footer class="footer">ASTRO MEDIA <span>·</span> PRIVATE MEDIA TOOL</footer>
+</main></body></html>

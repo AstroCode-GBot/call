@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Astro Media • Sign in</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="app-bg">
+<main class="shell shell-auth">
+  <header class="brand-row"><div class="brand-mark">AM</div><div><div class="brand-name">ASTRO MEDIA</div><div class="brand-sub">VOICE CONSOLE</div></div><span class="pill">PRIVATE</span></header>
+  <section class="panel auth-panel">
+    <div class="eyebrow">SECURE ACCESS</div><h1>Media voice console</h1>
+    <p class="muted">Upload an audio or video file, preview it, and select the audio track for calls coming into your own voice-provider number.</p>
+    {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-stack">{% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
+    <form method="post" action="{{ url_for('login') }}" class="form-stack">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="password">Admin password</label><input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter dashboard password" required>
+      <button class="btn btn-primary" type="submit">Sign in <span aria-hidden="true">→</span></button>
+    </form>
+    <div class="note"><span class="note-dot"></span><span>This dashboard does not make outgoing calls. Audio is served only to your configured inbound voice webhook.</span></div>
+  </section>
+  <footer class="footer">ASTRO MEDIA <span>·</span> PRIVATE MEDIA TOOL</footer>
+</main>
+</body></html>
